@@ -28,7 +28,7 @@ from hermes_cli.timeouts import get_provider_request_timeout, get_provider_stale
 from hermes_constants import PARTIAL_STREAM_STUB_ID, FINISH_REASON_LENGTH
 from agent.error_classifier import (
     FailoverReason, PROVIDER_STREAM_EMPTY_FRAME_ERROR_CODE, PROVIDER_STREAM_NON_JSON_ERROR_CODE,
-    _extract_status_code)
+    _extract_status_code, raised_by_openai_sdk)
 from agent.sdk_transform_bypass import bypass_chat_sdk_request_transform
 from agent.errors import EmptyStreamError
 from agent.chat_completion_local import _streams_llamacpp, stale_giveup
@@ -287,10 +287,10 @@ def _iter_provider_stream_chunks(stream, *, response: Any = None):
     try:
         yield from stream
     except json.JSONDecodeError as error:
+        if not raised_by_openai_sdk(error):  # a bug in our own code, not the provider (#160764)
+            raise
         stream_response = response() if callable(response) else response
-        if stream_response is None:
-            stream_response = getattr(stream, "response", None)
-        raise _provider_stream_error_from_json_decode_error(error, response=stream_response) from error
+        raise _provider_stream_error_from_json_decode_error(error, response=getattr(stream, "response", None) if stream_response is None else stream_response) from error
 
 
 def _payload_has_error_shape(payload: Any) -> bool:

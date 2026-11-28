@@ -30,6 +30,22 @@ PROVIDER_STREAM_NON_JSON_ERROR_CODE = "provider_stream_non_json_data"
 PROVIDER_STREAM_EMPTY_FRAME_ERROR_CODE = "provider_stream_empty_frame"
 
 
+def raised_by_openai_sdk(error: BaseException) -> bool:
+    """True when the innermost non-``json`` frame of *error* is inside the OpenAI SDK.
+
+    Its ``sse.json()`` failing is the provider's malformed SSE data; a JSONDecodeError
+    from Hermes code that runs while a stream is iterated is not (#160764).
+    """
+    module = ""
+    tb = error.__traceback__
+    while tb is not None:
+        name = str(tb.tb_frame.f_globals.get("__name__", ""))
+        if name != "json" and not name.startswith("json."):
+            module = name
+        tb = tb.tb_next
+    return module == "openai" or module.startswith("openai.")
+
+
 # ── Error taxonomy ──────────────────────────────────────────────────────
 
 class FailoverReason(enum.Enum):
