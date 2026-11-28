@@ -132,6 +132,49 @@ class TestCoerceToolArgs:
     def test_empty_args(self):
         assert coerce_tool_args("test_tool", {}) == {}
 
+    # Issue #161117: models sometimes send the whole argument object nested under
+    # the array parameter, e.g. {"todos": {"todos": [...], "merge": true}}.
+    _TODO_PROPS = {
+        "todos": {"type": "array", "items": {"type": "object"}},
+        "merge": {"type": "boolean"},
+    }
+
+    def test_unwraps_arguments_nested_under_their_own_array_parameter(self):
+        schema = self._mock_schema(self._TODO_PROPS)
+        item = {"id": "1", "content": "write tests", "status": "pending"}
+        with patch("tools.arg_coercion.registry.get_schema", return_value=schema):
+            result = coerce_tool_args("test_tool", {"todos": {"todos": [item], "merge": True}})
+        assert result == {"todos": [item], "merge": True}
+
+    def test_unwrap_coerces_the_lifted_values(self):
+        schema = self._mock_schema(self._TODO_PROPS)
+        item = {"id": "1", "content": "write tests", "status": "pending"}
+        with patch("tools.arg_coercion.registry.get_schema", return_value=schema):
+            result = coerce_tool_args("test_tool", {"todos": {"todos": item, "merge": "true"}})
+        assert result == {"todos": [item], "merge": True}
+
+    def test_unwrap_keeps_explicit_top_level_values(self):
+        schema = self._mock_schema(self._TODO_PROPS)
+        item = {"id": "1", "content": "write tests", "status": "pending"}
+        args = {"todos": {"todos": [item], "merge": True}, "merge": False}
+        with patch("tools.arg_coercion.registry.get_schema", return_value=schema):
+            result = coerce_tool_args("test_tool", args)
+        assert result == {"todos": [item], "merge": False}
+
+    def test_single_item_dict_is_still_wrapped(self):
+        schema = self._mock_schema(self._TODO_PROPS)
+        item = {"id": "1", "content": "write tests", "status": "pending"}
+        with patch("tools.arg_coercion.registry.get_schema", return_value=schema):
+            result = coerce_tool_args("test_tool", {"todos": dict(item)})
+        assert result == {"todos": [item]}
+
+    def test_dict_with_unknown_keys_is_not_unwrapped(self):
+        schema = self._mock_schema(self._TODO_PROPS)
+        value = {"todos": [], "note": "not a parameter"}
+        with patch("tools.arg_coercion.registry.get_schema", return_value=schema):
+            result = coerce_tool_args("test_tool", {"todos": dict(value)})
+        assert result == {"todos": [value]}
+
 
 
 

@@ -37,6 +37,8 @@ def coerce_tool_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     except Exception:  # pragma: no cover — never break dispatch
         pass
 
+    args = _unwrap_nested_arguments(tool_name, args, properties, parameters)
+
     for key, value in list(args.items()):
         prop_schema = properties.get(key)
         if not prop_schema:
@@ -84,6 +86,35 @@ def coerce_tool_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
                     coerced, prop_schema, root_schema=parameters
                 )
 
+    return args
+
+
+def _unwrap_nested_arguments(
+    tool_name: str, args: dict[str, Any], properties: dict[str, Any], parameters: dict[str, Any],
+) -> dict[str, Any]:
+    """Lift an argument object a model nested under one of its own array parameters.
+
+    ``{"todos": {"todos": [...], "merge": true}}`` means ``{"todos": [...], "merge": true}``;
+    wrapping it in a list instead yields an item that can never validate (#161117). Only
+    unwraps when the parameter cannot hold an object and every nested key is a parameter;
+    values already given at the top level win.
+    """
+    for key, value in args.items():
+        if not isinstance(value, dict) or key not in value:
+            continue
+        prop_schema = properties.get(key)
+        if not isinstance(prop_schema, dict):
+            continue
+        prop_schema = resolve_local_schema_ref(prop_schema, parameters)
+        if prop_schema.get("type") != "array" or _schema_accepts_kind(prop_schema, "object", parameters):
+            continue
+        if not all(k in properties for k in value):
+            continue
+        lifted = {k: v for k, v in args.items() if k != key}
+        for k, v in value.items():
+            lifted.setdefault(k, v)
+        logger.info("coerce_tool_args: unwrapped arguments nested under %s.%s", tool_name, key)
+        return lifted
     return args
 
 

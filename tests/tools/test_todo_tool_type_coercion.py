@@ -85,3 +85,28 @@ class TestWellFormedInputUnchanged:
         ])
         assert len(result) == 1
         assert result[0]["content"] == "v2"
+
+
+class TestNestedArgumentObject:
+    """Issue #161117: the whole argument object nested under ``todos`` (seen through tool_call)."""
+
+    ITEM = {"id": "t1", "content": "Do A", "status": "pending"}
+
+    def test_deferred_validation_accepts_nested_payload(self):
+        from tools.tool_search import validate_deferred_call_args
+        args = {"todos": {"todos": [dict(self.ITEM)], "merge": True}}
+        assert validate_deferred_call_args("todo_list", args) is None
+
+    def test_nested_payload_writes_the_items(self):
+        store = TodoStore()
+        agent = SimpleNamespace(_todo_store=store)
+        result = json.loads(INLINE_TOOL_EXECUTORS["todo_list"](
+            agent, {"todos": {"todos": [dict(self.ITEM)], "merge": True}},
+            InlineToolContext(effective_task_id="t")))
+        assert "error" not in result
+        assert [t["id"] for t in result["todos"]] == ["t1"]
+
+    def test_malformed_item_is_still_rejected(self):
+        from tools.tool_search import validate_deferred_call_args
+        args = {"todos": {"todos": [{"content": "no id"}], "merge": True}}
+        assert validate_deferred_call_args("todo_list", args) is not None
